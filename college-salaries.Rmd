@@ -1,0 +1,65 @@
+---
+title: "ANLY 500 Final Project"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Data Cleaning
+
+## Read Data
+```{r}
+library(readr)
+payscale_college_type = read.csv('salaries-by-college-type.csv')
+payscale_college_type = payscale_college_type[, c(1,2)]
+payscale_region = read.csv('salaries-by-region.csv')
+payscale_region = payscale_region[, c(1,2)]
+mrc_table10 = read.csv('mrc_table10.csv')
+mrc_table10 = mrc_table10[, c(1, 11, 12)]
+college_scorecard = read.csv('MERGED2012_13_PP.csv', na=c("NULL"))
+college_scorecard = college_scorecard[, c(3, 4,6,17,24,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,377,379,380,1638,1639,1640,1641,1642,1643,1644,1645,1646,1647,1648,1652,1653,1655,1656,1657,1661,1662,1664,1665,1666,1667,1668,1669,1670,1671,1672,1673,1674,1678,1679,1681,1682,1683,1687,1688,1695,1697)]
+```
+
+- MERGED2012_13_PP.csv is too large for git repo, please copy it to this directory manually.
+- Choose 12-13 data because later data do not have salary information.
+- `mrc_table10` is data from Mobility Report Card data, they give each school a tier. Looks more useful than payscale school type. For detail, please see Codebook-MRC-Table-6.pdf.
+
+## Merge Data
+```{r}
+
+process_school_name = function(data) {
+  data = sub(" \\(.*\\)", "", data)
+  data = sub(" - ", "-", data)
+  data = sub(", ", "-", data)
+  data = sub("\\.", "", data)
+  data = sub(" & ", " and ", data)
+  data = sub("&", " and ", data)
+  data = sub("St ", "Saint ", data)
+  data
+}
+
+# 269 rows
+payscale_college_type$School.Name = process_school_name(payscale_college_type$School.Name)
+# 320 rows
+payscale_region$School.Name = process_school_name(payscale_region$School.Name)
+# 7793 rows
+college_scorecard$INSTNM = process_school_name(college_scorecard$INSTNM)
+
+# 268 rows
+payscale = merge(payscale_college_type, payscale_region, by="School.Name", all = FALSE)
+
+# 197 rows
+scorecard_payscale = merge(college_scorecard, payscale, by.x = "INSTNM", by.y = "School.Name")
+# 16 duplicates
+dim(scorecard_payscale[duplicated(scorecard_payscale$INSTNM),])[1]
+
+# 3410 rows
+scorecard_mrc = merge(college_scorecard, mrc_table10, by.x = "OPEID6", by.y = "super_opeid")
+# 1045 duplicates
+dim(scorecard_mrc[duplicated(scorecard_mrc$OPEID6),])[1]
+```
+
+- 16 duplicates in `scorecard_payscale` is caused by duplicated school types. For example, some schools are both State and Party school.
+- 1045 duplicates in `scorecard_mrc` is because each row in College Scorecard data represent a campus. So one OPEID6 may have multiple campuses. However, Mobility Report Card is using combined OPEID.
