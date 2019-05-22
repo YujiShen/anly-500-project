@@ -1,34 +1,43 @@
 ---
 title: "ANLY 500 Final Project"
-output: html_document
+output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(mice)
+library(dplyr)
 ```
 
 # Data Cleaning
-
-## Read Data
-```{r}
-library(readr)
-payscale_college_type = read.csv('salaries-by-college-type.csv')
-payscale_college_type = payscale_college_type[, c(1,2)]
-payscale_region = read.csv('salaries-by-region.csv')
-payscale_region = payscale_region[, c(1,2)]
-mrc_table10 = read.csv('mrc_table10.csv')
-mrc_table10 = mrc_table10[, c(1, 11, 12)]
-college_scorecard = read.csv('MERGED2012_13_PP.csv', na=c("NULL"))
-college_scorecard = college_scorecard[, c(3, 4,6,17,24,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,377,379,380,1638,1639,1640,1641,1642,1643,1644,1645,1646,1647,1648,1652,1653,1655,1656,1657,1661,1662,1664,1665,1666,1667,1668,1669,1670,1671,1672,1673,1674,1678,1679,1681,1682,1683,1687,1688,1695,1697)]
-```
 
 - MERGED2012_13_PP.csv is too large for git repo, please copy it to this directory manually.
 - Choose 12-13 data because later data do not have salary information.
 - `mrc_table10` is data from Mobility Report Card data, they give each school a tier. Looks more useful than payscale school type. For detail, please see Codebook-MRC-Table-6.pdf.
 
-## Merge Data
+## Read Data
 ```{r}
+payscale_college_type = read.csv('salaries-by-college-type.csv')
+payscale_college_type = payscale_college_type[, c(1,2)]
+payscale_region = read.csv('salaries-by-region.csv')
+payscale_region = payscale_region[, c(1,2)]
 
+mrc_table10 = read.csv('mrc_table10.csv')
+mrc_table10 = mrc_table10[, c(1, 12)]
+
+# Treat "NULL" and "PrivacySuppressed" as NA when read
+college_scorecard = read.csv('MERGED2012_13_PP.csv', na=c("NULL", "PrivacySuppressed"))
+college_scorecard = college_scorecard[, c(3, 4,6,17,377,379,380,1638,1639,1640,1642,1643,1645,1646,1647,1648,1652,1653,1655,1656,1657,1661,1662,1664,1665,1666,1668,1669,1671,1672,1673,1674,1678,1679,1681,1682,1683,1687,1688,1695,1697)]
+```
+
+## Merge Data
+
+### Process School Name
+
+Normalize all school name for merging.
+
+```{r}
 process_school_name = function(data) {
   data = sub(" \\(.*\\)", "", data)
   data = sub(" - ", "-", data)
@@ -46,20 +55,117 @@ payscale_college_type$School.Name = process_school_name(payscale_college_type$Sc
 payscale_region$School.Name = process_school_name(payscale_region$School.Name)
 # 7793 rows
 college_scorecard$INSTNM = process_school_name(college_scorecard$INSTNM)
-
-# 268 rows
-payscale = merge(payscale_college_type, payscale_region, by="School.Name", all = FALSE)
-
-# 197 rows
-scorecard_payscale = merge(college_scorecard, payscale, by.x = "INSTNM", by.y = "School.Name")
-# 16 duplicates
-dim(scorecard_payscale[duplicated(scorecard_payscale$INSTNM),])[1]
-
-# 3410 rows
-scorecard_mrc = merge(college_scorecard, mrc_table10, by.x = "OPEID6", by.y = "super_opeid")
-# 1045 duplicates
-dim(scorecard_mrc[duplicated(scorecard_mrc$OPEID6),])[1]
 ```
 
-- 16 duplicates in `scorecard_payscale` is caused by duplicated school types. For example, some schools are both State and Party school.
-- 1045 duplicates in `scorecard_mrc` is because each row in College Scorecard data represent a campus. So one OPEID6 may have multiple campuses. However, Mobility Report Card is using combined OPEID.
+### Merge Payscale data
+```{r, results='hide'}
+payscale = merge(payscale_college_type, payscale_region, by="School.Name", all = FALSE)
+
+payscale %>% group_by(School.Name) %>% filter(n() > 1)
+
+payscale_party = payscale %>%
+  filter(School.Type == "Party")
+
+# 248 rows
+payscale = payscale %>%
+  filter(School.Type != "Party") %>%
+  mutate(Is.Party = School.Name %in% payscale_party$School.Name)
+```
+
+All the duplicate rows in Payscale data is because it duplicates all Party Schools. So we split whether or not is a party school into a separate column.
+
+### Merge with College Scorecard
+```{r, results='hide'}
+
+scorecard_payscale = merge(payscale, college_scorecard, by.y = "INSTNM", by.x = "School.Name")
+
+scorecard_payscale %>% group_by(School.Name) %>% filter(n() > 1)
+
+# 181 rows
+scorecard_payscale = scorecard_payscale %>%
+  filter( !((School.Name == 'Union College' & STABBR != 'NY') | 
+            (School.Name == 'Wentworth Institute of Technology' & is.na(COSTT4_A))))
+```
+
+Two schools are duplicate after merged with College Scorecard data. After some search, we only keep Union College in New York because that is the only one in northwest. And we only keep one Wentworth Institute of Technology because the others do not have data.
+
+### Merge with MRC
+```{r, results='hide'}
+# 147 rows
+data = merge(scorecard_payscale, mrc_table10, by.x = "OPEID6", by.y = "super_opeid")
+
+data %>% group_by(School.Name) %>% filter(n() > 1)
+```
+
+No duplicate in this step
+
+### Other processing
+```{r}
+names(data)[names(data) == 'tier_name'] <- 'Tier'
+earning_colnames = c("COUNT_WNE_P6", "MN_EARN_WNE_P6", "MD_EARN_WNE_P6", "PCT25_EARN_WNE_P6", 
+"PCT75_EARN_WNE_P6", "SD_EARN_WNE_P6", "COUNT_WNE_INC1_P6", "COUNT_WNE_INC2_P6", 
+"COUNT_WNE_INC3_P6", "COUNT_WNE_MALE0_P6", "COUNT_WNE_MALE1_P6", 
+"MN_EARN_WNE_INC1_P6", "MN_EARN_WNE_INC2_P6", "MN_EARN_WNE_INC3_P6", 
+"MN_EARN_WNE_MALE0_P6", "MN_EARN_WNE_MALE1_P6", "COUNT_WNE_P8", 
+"MD_EARN_WNE_P8", "COUNT_WNE_P10", "MN_EARN_WNE_P10", "MD_EARN_WNE_P10", "PCT25_EARN_WNE_P10", 
+"PCT75_EARN_WNE_P10", "SD_EARN_WNE_P10", "COUNT_WNE_INC1_P10", 
+"COUNT_WNE_INC2_P10", "COUNT_WNE_INC3_P10", "COUNT_WNE_MALE0_P10", 
+"COUNT_WNE_MALE1_P10", "MN_EARN_WNE_INC1_P10", "MN_EARN_WNE_INC2_P10", 
+"MN_EARN_WNE_INC3_P10", "MN_EARN_WNE_MALE0_P10", "MN_EARN_WNE_MALE1_P10")
+cost_colnames = c("COSTT4_A", "TUITIONFEE_IN", "TUITIONFEE_OUT")
+data = data[c("School.Name", "School.Type", "Region", "Is.Party", 
+"STABBR", "CONTROL", "Tier", cost_colnames, earning_colnames)]
+
+data$CONTROL = factor(data$CONTROL, levels = c(1,2), labels = c("Public", "Private nonprofit"))
+
+write_csv(data, "data_cleaned.csv")
+```
+
+We reorder the column for easy inspection. And convert `CONTROL` into factor.
+
+## Accuracy and Outlier
+### Accurary & Missing value
+```{r, results='hide', warning=FALSE}
+summary(data)
+
+percentmiss <- function(x){length(x[is.na(x)])/length(x)*100}
+
+# process column first will get more records left
+missing_col = apply(data, 2, percentmiss)
+missing_col
+delete <- which(missing_col > 5)
+replace_col = data[,-delete]
+dont_col = data[,delete]
+
+missing_row = apply(replace_col, 1, percentmiss)
+missing_row[missing_row > 5]
+replace_row = subset(replace_col, missing_row <= 5)
+dont_row = subset(replace_col, missing_row > 5)
+
+# change to "cart" to avoid error, increase iteration to get reliable result
+temp_no_miss = mice(replace_row, maxit=100, method='cart', seed=500)
+no_miss = complete(temp_no_miss,1)
+
+# combine data back
+all_rows = rbind(dont_row, no_miss)
+all_col = cbind(dont_col, all_rows)
+```
+
+There is no accuracy problem in the data. We use mice to complete the missing value for data meet 5% rule.
+
+### Outlier
+```{r}
+# pass tolerance to prevent mahalanobis think it is singular matrix
+mahal <- mahalanobis(no_miss[-c(1:7)],
+                    colMeans(no_miss[-c(1:7)],na.rm=TRUE),
+                    cov(no_miss[-c(1:7)], use = "pairwise.complete.obs"),
+                    tol=1e-30)
+cutoff = qchisq(1-.001,ncol(no_miss[-c(1:7)]))
+print(cutoff)
+summary(mahal < cutoff)
+noout = subset(no_miss, mahal < cutoff)
+
+no_miss[mahal >= cutoff, c("School.Name", "COSTT4_A", "TUITIONFEE_IN", "TUITIONFEE_OUT", "MN_EARN_WNE_P6", "MD_EARN_WNE_P6")]
+```
+
+We get 11 schools as outliers. Need more analysis about them.
