@@ -12,8 +12,7 @@ library(dplyr)
 
 # Data Cleaning
 
-- MERGED2012_13_PP.csv is too large for git repo, please copy it to this directory manually.
-- Choose 12-13 data because later data do not have salary information.
+- Unzip MERGED2014_15_PP.csv.zip, it is from College Scorecard webiste, not Kaggle. Since Kaggle do not have latest data.
 - `mrc_table10` is data from Mobility Report Card data, they give each school a tier. Looks more useful than payscale school type. For detail, please see Codebook-MRC-Table-6.pdf.
 
 ## Read Data
@@ -27,7 +26,7 @@ mrc_table10 = read.csv('mrc_table10.csv')
 mrc_table10 = mrc_table10[, c(1, 12)]
 
 # Treat "NULL" and "PrivacySuppressed" as NA when read
-college_scorecard = read.csv('MERGED2012_13_PP.csv', na=c("NULL", "PrivacySuppressed"))
+college_scorecard = read.csv('MERGED2014_15_PP.csv', na=c("NULL", "PrivacySuppressed"))
 college_scorecard = college_scorecard[, c(3, 4,6,17,377,379,380,1638,1639,1640,1642,1643,1645,1646,1647,1648,1652,1653,1655,1656,1657,1661,1662,1664,1665,1666,1668,1669,1671,1672,1673,1674,1678,1679,1681,1682,1683,1687,1688,1695,1697)]
 ```
 
@@ -49,12 +48,14 @@ process_school_name = function(data) {
   data
 }
 
-# 269 rows
 payscale_college_type$School.Name = process_school_name(payscale_college_type$School.Name)
-# 320 rows
+nrow(payscale_college_type)
+
 payscale_region$School.Name = process_school_name(payscale_region$School.Name)
-# 7793 rows
+nrow(payscale_region)
+
 college_scorecard$INSTNM = process_school_name(college_scorecard$INSTNM)
+nrow(college_scorecard)
 ```
 
 ### Merge Payscale data
@@ -66,35 +67,37 @@ payscale %>% group_by(School.Name) %>% filter(n() > 1)
 payscale_party = payscale %>%
   filter(School.Type == "Party")
 
-# 248 rows
 payscale = payscale %>%
   filter(School.Type != "Party") %>%
   mutate(Is.Party = School.Name %in% payscale_party$School.Name)
+
+nrow(payscale)
 ```
 
 All the duplicate rows in Payscale data is because it duplicates all Party Schools. So we split whether or not is a party school into a separate column.
 
 ### Merge with College Scorecard
 ```{r, results='hide'}
-
 scorecard_payscale = merge(payscale, college_scorecard, by.y = "INSTNM", by.x = "School.Name")
 
 scorecard_payscale %>% group_by(School.Name) %>% filter(n() > 1)
 
-# 181 rows
 scorecard_payscale = scorecard_payscale %>%
   filter( !((School.Name == 'Union College' & STABBR != 'NY') | 
             (School.Name == 'Wentworth Institute of Technology' & is.na(COSTT4_A))))
+
+nrow(scorecard_payscale)
 ```
 
 Two schools are duplicate after merged with College Scorecard data. After some search, we only keep Union College in New York because that is the only one in northwest. And we only keep one Wentworth Institute of Technology because the others do not have data.
 
 ### Merge with MRC
 ```{r, results='hide'}
-# 147 rows
 data = merge(scorecard_payscale, mrc_table10, by.x = "OPEID6", by.y = "super_opeid")
 
 data %>% group_by(School.Name) %>% filter(n() > 1)
+
+nrow(data)
 ```
 
 No duplicate in this step
@@ -165,7 +168,7 @@ print(cutoff)
 summary(mahal < cutoff)
 noout = subset(no_miss, mahal < cutoff)
 
-no_miss[mahal >= cutoff, c("School.Name", "COSTT4_A", "TUITIONFEE_IN", "TUITIONFEE_OUT", "MN_EARN_WNE_P6", "MD_EARN_WNE_P6")]
+no_miss[mahal >= cutoff, c("School.Name", "COSTT4_A", "TUITIONFEE_IN", "TUITIONFEE_OUT", "MN_EARN_WNE_P6", "MD_EARN_WNE_P6", "MN_EARN_WNE_P10", "MD_EARN_WNE_P10")]
 ```
 
-We get 11 schools as outliers. Need more analysis about them.
+We get 10 schools as outliers. Need more analysis about them.
