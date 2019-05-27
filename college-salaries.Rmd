@@ -8,6 +8,8 @@ knitr::opts_chunk$set(echo = TRUE)
 library(readr)
 library(mice)
 library(dplyr)
+library(RColorBrewer)
+library(ggplot2)
 ```
 
 # Data Cleaning
@@ -121,7 +123,7 @@ data = data[c("School.Name", "School.Type", "Region", "Is.Party",
 
 data$CONTROL = factor(data$CONTROL, levels = c(1,2), labels = c("Public", "Private nonprofit"))
 
-write_csv(data, "data_cleaned.csv")
+# write_csv(data, "data_cleaned.csv")
 ```
 
 We reorder the column for easy inspection. And convert `CONTROL` into factor.
@@ -172,3 +174,96 @@ no_miss[mahal >= cutoff, c("School.Name", "COSTT4_A", "TUITIONFEE_IN", "TUITIONF
 ```
 
 We get 10 schools as outliers. Need more analysis about them.
+
+# Algorithm and Models
+```{r}
+##Read the 4th dataset
+salary_degree <-
+  read_csv(
+    'degrees-that-pay-back.csv',
+    col_names = c(
+      "major",
+      "start_med_slry",
+      "mid_car_slry",
+      "percent_chng",
+      "mid_car_10th",
+      "mid_car_25th",
+      "mid_car_75th",
+      "mid_car_90th"
+    ),
+    col_types = "cnndnnnn", # specify column types to coerce '$' to numeric
+    skip = 1 # names specified, skip header
+  ) 
+
+#####
+cleanup<-theme(panel.grid.major = element_blank(),
+               panel.grid.minor = element_blank(),
+               panel.background = element_blank(),
+               axis.line.x = element_line(color = 'black'),
+               axis.line.y = element_line(color = 'black'),
+               legend.key = element_rect(fill = 'white'),
+               text = element_text(size = 12)) 
+##  Plot degree v/s starting salary
+p1 <- ggplot(salary_degree, aes(x = reorder(major, start_med_slry), start_med_slry)) +
+  geom_col(fill = "blue", alpha = 0.5) +
+  geom_col(aes(x = reorder(major, mid_car_slry), mid_car_slry), alpha = 0.3) +
+  geom_text(aes(label = (start_med_slry)), size = 3, hjust = 1.1, col="yellow")+
+   xlab(NULL) +
+  ylab("Salary in $")+
+  coord_flip() +
+  ggtitle("Starting salary v/s mid career salary in $")+
+  cleanup
+p1
+
+## Top 10 school 
+
+accent_colors_edit <- brewer.pal(n = 5, "Pastel1")[c(1:3, 5)]  # keep colors consistent for plot w/o 'party'
+
+top10_colleges <- data %>%
+  select(School.Name, School.Type, MD_EARN_WNE_P8) %>%
+  arrange(desc(MD_EARN_WNE_P8)) %>%
+  top_n(10)
+top10_colleges
+ggplot(top10_colleges, aes(reorder(School.Name, MD_EARN_WNE_P8), MD_EARN_WNE_P8, fill = School.Type)) +
+  geom_col(alpha = 0.8) +
+  scale_fill_manual(values = accent_colors_edit) +
+  geom_text(aes(label =(MD_EARN_WNE_P8)), hjust = 1.1, color = 'gray30') +
+   xlab(NULL) +
+  ggtitle("Top 10 colleges")+
+  ylab("Mid career salary in $")+
+   coord_flip()
+## Any correlation b/w starting salary and mid career salary
+
+ggplot(data, aes(MD_EARN_WNE_P6, MD_EARN_WNE_P8)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(se = F) +
+  xlab("Starting salary in $")+
+  ylab("Mid career salary in $")
+ 
+ 
+## Count by college type
+
+ggplot(data, aes(School.Type)) +
+  geom_bar(color = 'black', alpha = 0.8)
+  
+##  Region and type
+  ggplot(data, aes(Region, fill = School.Type)) +
+    geom_bar(position = 'dodge', alpha = 0.8, color = 'gray20') +
+    scale_fill_brewer(palette = 'Pastel1') +
+    theme(legend.position = "top")  
+
+# How do starting salary and mid-career median salary differ over region and type? 
+
+#Below is a look at the mean starting and mid-career salaries over these two categories.
+  ggplot(data, aes(reorder(Region, MN_EARN_WNE_P6), MD_EARN_WNE_P8, fill = School.Type)) +
+    stat_summary(geom = 'col', position = 'dodge', alpha = 0.6) +
+    stat_summary(aes(Region, MN_EARN_WNE_P6, fill = School.Type),
+                 geom = 'col', position = 'dodge') +
+    scale_fill_brewer(palette = 'Pastel1') +
+      xlab('Region') +
+    ylab('Salaries in $') +
+    ggtitle('Mean starting and Mid-career median salaries') +
+    coord_flip()
+
+```
+
