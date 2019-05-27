@@ -10,6 +10,7 @@ library(mice)
 library(dplyr)
 library(RColorBrewer)
 library(ggplot2)
+library(reshape)
 ```
 
 # Data Cleaning
@@ -29,7 +30,7 @@ mrc_table10 = mrc_table10[, c(1, 12)]
 
 # Treat "NULL" and "PrivacySuppressed" as NA when read
 college_scorecard = read.csv('MERGED2014_15_PP.csv', na=c("NULL", "PrivacySuppressed"))
-college_scorecard = college_scorecard[, c(3, 4,6,17,377,379,380,1638,1639,1640,1642,1643,1645,1646,1647,1648,1652,1653,1655,1656,1657,1661,1662,1664,1665,1666,1668,1669,1671,1672,1673,1674,1678,1679,1681,1682,1683,1687,1688,1695,1697)]
+college_scorecard = college_scorecard[, c(3, 4,6,17,377,1639,1640,1642,1643,1645,1655,1656,1657,1661,1662,1665,1666,1668,1669,1671,1681,1682,1683,1687,1688,1697)]
 ```
 
 ## Merge Data
@@ -107,23 +108,12 @@ No duplicate in this step
 ### Other processing
 ```{r}
 names(data)[names(data) == 'tier_name'] <- 'Tier'
-earning_colnames = c("COUNT_WNE_P6", "MN_EARN_WNE_P6", "MD_EARN_WNE_P6", "PCT25_EARN_WNE_P6", 
-"PCT75_EARN_WNE_P6", "SD_EARN_WNE_P6", "COUNT_WNE_INC1_P6", "COUNT_WNE_INC2_P6", 
-"COUNT_WNE_INC3_P6", "COUNT_WNE_MALE0_P6", "COUNT_WNE_MALE1_P6", 
-"MN_EARN_WNE_INC1_P6", "MN_EARN_WNE_INC2_P6", "MN_EARN_WNE_INC3_P6", 
-"MN_EARN_WNE_MALE0_P6", "MN_EARN_WNE_MALE1_P6", "COUNT_WNE_P8", 
-"MD_EARN_WNE_P8", "COUNT_WNE_P10", "MN_EARN_WNE_P10", "MD_EARN_WNE_P10", "PCT25_EARN_WNE_P10", 
-"PCT75_EARN_WNE_P10", "SD_EARN_WNE_P10", "COUNT_WNE_INC1_P10", 
-"COUNT_WNE_INC2_P10", "COUNT_WNE_INC3_P10", "COUNT_WNE_MALE0_P10", 
-"COUNT_WNE_MALE1_P10", "MN_EARN_WNE_INC1_P10", "MN_EARN_WNE_INC2_P10", 
-"MN_EARN_WNE_INC3_P10", "MN_EARN_WNE_MALE0_P10", "MN_EARN_WNE_MALE1_P10")
-cost_colnames = c("COSTT4_A", "TUITIONFEE_IN", "TUITIONFEE_OUT")
-data = data[c("School.Name", "School.Type", "Region", "Is.Party", 
-"STABBR", "CONTROL", "Tier", cost_colnames, earning_colnames)]
+earning_colnames = c("MN_EARN_WNE_P6", "MD_EARN_WNE_P6", "PCT25_EARN_WNE_P6", "PCT75_EARN_WNE_P6", "SD_EARN_WNE_P6", "MN_EARN_WNE_INC1_P6", "MN_EARN_WNE_INC2_P6", "MN_EARN_WNE_INC3_P6", "MN_EARN_WNE_MALE0_P6", "MN_EARN_WNE_MALE1_P6", "MD_EARN_WNE_P8", "MN_EARN_WNE_P10", "MD_EARN_WNE_P10", "PCT25_EARN_WNE_P10", "PCT75_EARN_WNE_P10", "SD_EARN_WNE_P10", "MN_EARN_WNE_INC1_P10", "MN_EARN_WNE_INC2_P10", "MN_EARN_WNE_INC3_P10", "MN_EARN_WNE_MALE0_P10", "MN_EARN_WNE_MALE1_P10")
+cost_colnames = c("COSTT4_A")
+attr_colnames = c("School.Name", "School.Type", "Region", "Is.Party", 
+"STABBR", "CONTROL", "Tier")
 
 data$CONTROL = factor(data$CONTROL, levels = c(1,2), labels = c("Public", "Private nonprofit"))
-
-# write_csv(data, "data_cleaned.csv")
 ```
 
 We reorder the column for easy inspection. And convert `CONTROL` into factor.
@@ -161,19 +151,67 @@ There is no accuracy problem in the data. We use mice to complete the missing va
 ### Outlier
 ```{r}
 # pass tolerance to prevent mahalanobis think it is singular matrix
-mahal <- mahalanobis(no_miss[-c(1:7)],
-                    colMeans(no_miss[-c(1:7)],na.rm=TRUE),
-                    cov(no_miss[-c(1:7)], use = "pairwise.complete.obs"),
+attr_index = which(colnames(no_miss) %in% attr_colnames)
+mahal <- mahalanobis(no_miss[-c(attr_index)],
+                    colMeans(no_miss[-c(attr_index)],na.rm=TRUE),
+                    cov(no_miss[-c(attr_index)], use = "pairwise.complete.obs"),
                     tol=1e-30)
-cutoff = qchisq(1-.001,ncol(no_miss[-c(1:7)]))
+cutoff = qchisq(1-.001,ncol(no_miss[-c(attr_index)]))
 print(cutoff)
 summary(mahal < cutoff)
 noout = subset(no_miss, mahal < cutoff)
 
-no_miss[mahal >= cutoff, c("School.Name", "COSTT4_A", "TUITIONFEE_IN", "TUITIONFEE_OUT", "MN_EARN_WNE_P6", "MD_EARN_WNE_P6", "MN_EARN_WNE_P10", "MD_EARN_WNE_P10")]
+no_miss[mahal >= cutoff, c("School.Name", "COSTT4_A", "MN_EARN_WNE_P6", "MD_EARN_WNE_P6", "MN_EARN_WNE_P10", "MD_EARN_WNE_P10")]
+
+data = all_col
 ```
 
-We get 10 schools as outliers. Need more analysis about them.
+The outliers are more than 5% of data, so we keep them.
+
+## ROI Analysis
+```{r}
+## Break-even point calculation
+data$BE_MN_P6 = data$MN_EARN_WNE_P6/data$COSTT4_A
+data$BE_MD_P6 = data$MD_EARN_WNE_P6/data$COSTT4_A
+data$BE_MN_P10 = data$MN_EARN_WNE_P10/data$COSTT4_A
+data$BE_MD_P10 = data$MD_EARN_WNE_P10/data$COSTT4_A
+
+## ROI USING EARNINGS of beigining salary
+data$ROI_MN_P6 = (data$MN_EARN_WNE_P6 - data$COSTT4_A) / data$COSTT4_A
+data$ROI_MD_P6 = (data$MD_EARN_WNE_P6 - data$COSTT4_A) / data$COSTT4_A
+
+## ROI USING MEAN EARNINGS of 6-year salary
+data$ROI_MN_P10 = (data$MN_EARN_WNE_P10 - data$COSTT4_A) / data$COSTT4_A
+data$ROI_MD_P10 = (data$MD_EARN_WNE_P10 - data$COSTT4_A) / data$COSTT4_A
+roi_colnames = c("BE_MN_P6", "BE_MD_P6", "BE_MN_P10", "BE_MN_P10", "ROI_MN_P6", "ROI_MD_P6", "ROI_MN_P10", "ROI_MD_P10")
+```
+
+### Data Output
+
+```{r}
+data_gender_p6 = melt(data[c("School.Name", "MN_EARN_WNE_MALE0_P6", "MN_EARN_WNE_MALE1_P6")], id=c("School.Name"), variable_name="Gender")
+levels(data_gender_p6$Gender) = c("Male", "Female")
+colnames(data_gender_p6)[3] = "MN_EARN_WNE_GENDER_P6"
+
+data_gender_p10 = melt(data[c("School.Name", "MN_EARN_WNE_MALE0_P10", "MN_EARN_WNE_MALE1_P10")], id=c("School.Name"), variable_name="Gender")
+levels(data_gender_p10$Gender) = c("Male", "Female")
+colnames(data_gender_p10)[3] = "MN_EARN_WNE_GENDER_P10"
+
+data_inc_p6 = melt(data[c("School.Name", "MN_EARN_WNE_INC1_P6", "MN_EARN_WNE_INC2_P6", "MN_EARN_WNE_INC3_P6")], id=c("School.Name"), variable_name="Family.Income.Tercile")
+colnames(data_inc_p6)[3] = "MN_EARN_WNE_INC_P6"
+levels(data_inc_p6$Family.Income.Tercile) = c("Lowest Income Tercile", "Middle Income Tercile", "Highest Income Tercile")
+
+data_inc_p10 = melt(data[c("School.Name", "MN_EARN_WNE_INC1_P10", "MN_EARN_WNE_INC2_P10", "MN_EARN_WNE_INC3_P10")], id=c("School.Name"), variable_name="Family.Income.Tercile")
+colnames(data_inc_p10)[3] = "MN_EARN_WNE_INC_P10"
+levels(data_inc_p10$Family.Income.Tercile) = c("Lowest Income Tercile", "Middle Income Tercile", "Highest Income Tercile")
+
+data = data[c(attr_colnames, cost_colnames, earning_colnames, roi_colnames)]
+#write_csv(data, "data_cleaned.csv")
+#write_csv(data_gender_p6, "data_gender_p6.csv")
+#write_csv(data_gender_p10, "data_gender_p10.csv")
+#write_csv(data_inc_p6, "data_inc_p6.csv")
+#write_csv(data_inc_p10, "data_inc_p10.csv")
+```
 
 # Algorithm and Models
 ```{r}
@@ -266,4 +304,3 @@ ggplot(data, aes(School.Type)) +
     coord_flip()
 
 ```
-
