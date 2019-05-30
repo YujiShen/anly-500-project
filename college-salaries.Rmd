@@ -11,6 +11,8 @@ library(dplyr)
 library(RColorBrewer)
 library(ggplot2)
 library(reshape)
+library(tidyverse)
+library(stringr)
 ```
 
 # Data Cleaning
@@ -139,7 +141,7 @@ dont_row = subset(replace_col, missing_row > 5)
 
 # change to "cart" to avoid error, increase iteration to get reliable result
 temp_no_miss = mice(replace_row, maxit=100, method='cart', seed=500)
-no_miss = complete(temp_no_miss,1)
+no_miss = mice::complete(temp_no_miss,1)
 
 # combine data back
 all_rows = rbind(dont_row, no_miss)
@@ -302,5 +304,152 @@ ggplot(data, aes(School.Type)) +
     ylab('Salaries in $') +
     ggtitle('Mean starting and Mid-career median salaries') +
     coord_flip()
-
 ```
+
+# Gender & Family
+```{r}
+#Wrangle data to add gender variable
+data_long <- gather(data, "gender", "value", MN_EARN_WNE_MALE0_P6, MN_EARN_WNE_MALE1_P6, MN_EARN_WNE_MALE0_P10, MN_EARN_WNE_MALE1_P10)
+data_long1 <- separate(data_long, gender, c("gender", "gendered"), sep = "_P", remove = FALSE)
+data_long2 <- spread(data_long1, gendered, value, fill = NA, convert = FALSE, sep = "_Income_P")
+data_long2$gender <- str_replace(data_long2$gender, "MN_EARN_WNE_MALE0", "Female")
+data_long2$gender <- str_replace(data_long2$gender, "MN_EARN_WNE_MALE1", "Male")
+
+#Wrangle data to add family income variable
+data_long3 <- gather(data_long2, "family_income_level", "value", MN_EARN_WNE_INC1_P6, MN_EARN_WNE_INC2_P6, MN_EARN_WNE_INC3_P6, MN_EARN_WNE_INC1_P10, MN_EARN_WNE_INC2_P10, MN_EARN_WNE_INC3_P10)
+data_long4 <- separate(data_long3, family_income_level, c("family_income_level", "born"), sep = "_P", remove = FALSE)
+data_long5 <- spread(data_long4, born, value, fill = NA, convert = FALSE, sep = "_Income_P")
+data_long5$family_income_level <- str_replace(data_long5$family_income_level, "MN_EARN_WNE_INC1", "Low")
+data_long5$family_income_level <- str_replace(data_long5$family_income_level, "MN_EARN_WNE_INC2", "Medium")
+data_long5$family_income_level <- str_replace(data_long5$family_income_level, "MN_EARN_WNE_INC3", "High")
+
+#Remove NA value
+longdata <- drop_na(data_long5)
+
+#Explore the interaction effect with what you can't change - family and gender
+longchar =
+  ggplot(longdata, aes(longdata$Is.Party,longdata$born_Income_P6,fill=longdata$family_income_level)) +  
+  stat_summary(fun.y = mean,
+               geom = "bar",
+               position = "dodge")+
+  stat_summary(fun.data = mean_cl_normal,
+               geom = "errorbar",
+               position = position_dodge(width = 0.9),
+               width = 0.1) +
+  xlab("Party School?")+
+  ylab("Starting Salary") +
+  theme_classic() +
+  scale_fill_manual(name = "Family Income Level",
+                    labels = c("High ($75k+)","Low ($30k-)", "Medium ($30k~$75k)"),
+                    values = c("LightBlue","Pink", "Lavender"))
+longchar
+longchar2 =
+  ggplot(longdata, aes(longdata$Is.Party,longdata$born_Income_P10,fill=longdata$family_income_level)) +  
+  stat_summary(fun.y = mean,
+               geom = "bar",
+               position = "dodge")+
+  stat_summary(fun.data = mean_cl_normal,
+               geom = "errorbar",
+               position = position_dodge(width = 0.9),
+               width = 0.1) +
+  xlab("Party School?")+
+  ylab("Midcareer Salary") +
+  theme_classic() +
+  scale_fill_manual(name = "Family Income Level",
+                    labels = c("High ($75k+)","Low ($30k-)", "Medium ($30k~$75k)"),
+                    values = c("LightBlue","Pink", "Lavender"))
+longchar2
+longchar3 =
+  ggplot(longdata, aes(longdata$School.Type,longdata$born_Income_P6,fill=longdata$family_income_level)) +  
+  stat_summary(fun.y = mean,
+               geom = "bar",
+               position = "dodge")+
+  stat_summary(fun.data = mean_cl_normal,
+               geom = "errorbar",
+               position = position_dodge(width = 0.9),
+               width = 0.1) +
+  xlab("School Type")+
+  ylab("Starting Salary") +
+  theme_classic() +
+  scale_fill_manual(name = "Family Income Level",
+                    labels = c("High ($75k+)","Low ($30k-)", "Medium ($30k~$75k)"),
+                    values = c("LightBlue","Pink", "Lavender"))
+longchar3
+longchar4 =
+  ggplot(longdata, aes(longdata$School.Type,longdata$born_Income_P10,fill=longdata$family_income_level)) +  
+  stat_summary(fun.y = mean,
+               geom = "bar",
+               position = "dodge")+
+  stat_summary(fun.data = mean_cl_normal,
+               geom = "errorbar",
+               position = position_dodge(width = 0.9),
+               width = 0.1) +
+  xlab("School Type")+
+  ylab("Midcareer Salary") +
+  theme_classic() +
+  scale_fill_manual(name = "Family Income Level",
+                    labels = c("High ($75k+)","Low ($30k-)", "Medium ($30k~$75k)"),
+                    values = c("LightBlue","Pink", "Lavender"))
+longchar4
+longchar5 =
+  ggplot(longdata, aes(longdata$School.Type,longdata$gendered_Income_P6,fill=longdata$gender)) +  
+  stat_summary(fun.y = mean,
+               geom = "bar",
+               position = "dodge")+
+  stat_summary(fun.data = mean_cl_normal,
+               geom = "errorbar",
+               position = position_dodge(width = 0.9),
+               width = 0.1) +
+  xlab("School Type")+
+  ylab("Starting Salary") +
+  theme_classic() 
+longchar5
+longchar6 =
+  ggplot(longdata, aes(longdata$School.Type,longdata$gendered_Income_P10,fill=longdata$gender)) +  
+  stat_summary(fun.y = mean,
+               geom = "bar",
+               position = "dodge")+
+  stat_summary(fun.data = mean_cl_normal,
+               geom = "errorbar",
+               position = position_dodge(width = 0.9),
+               width = 0.1) +
+  xlab("School Type")+
+  ylab("Midcareer Salary") +
+  theme_classic() 
+longchar6
+unique(longdata$Tier)
+longchar7 =
+  ggplot(longdata, aes(longdata$Tier,longdata$gendered_Income_P10,fill=longdata$gender)) +  
+  stat_summary(fun.y = mean,
+               geom = "bar",
+               position = "dodge")+
+  stat_summary(fun.data = mean_cl_normal,
+               geom = "errorbar",
+               position = position_dodge(width = 0.9),
+               width = 0.1) +
+  xlab("School Type")+
+  ylab("Midcareer Salary") +
+  theme_classic() 
+longchar7
+
+#T-test to see if there is a difference in starting income from the two different gender group
+#H1: M1 <> M2
+#H0: M1 = M2
+t.test(longdata$gendered_Income_P6 ~ longdata$gender)
+
+#Power and effect size
+table(longdata$gender)
+sd(longdata$gendered_Income_P6[longdata$gender=="Female"])
+sd(longdata$gendered_Income_P6[longdata$gender=="Male"])
+library(MOTE)
+effect = d.ind.t(m1 = 41038.38, m2 = 49424.02,
+                 sd1 = 10289.34, sd2 = 13488.84,
+                 n1 = 383, n2 = 383, a = .05)
+effect$d
+library(pwr)
+pwr.t.test(n = NULL, d = effect$d, 
+           sig.level = .05,
+           power = .80, type = "two.sample", 
+           alternative = "two.sided")
+```
+
