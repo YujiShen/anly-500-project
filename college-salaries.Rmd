@@ -171,19 +171,19 @@ The outliers are more than 5% of data, so we keep them.
 ## ROI Analysis
 ```{r}
 ## Break-even point calculation
-data$BE_MN_P6 = data$MN_EARN_WNE_P6/data$COSTT4_A
-data$BE_MD_P6 = data$MD_EARN_WNE_P6/data$COSTT4_A
-data$BE_MN_P10 = data$MN_EARN_WNE_P10/data$COSTT4_A
-data$BE_MD_P10 = data$MD_EARN_WNE_P10/data$COSTT4_A
+data$BE_MN_P6 = data$COSTT4_A * 4 / data$MN_EARN_WNE_P6
+data$BE_MD_P6 = data$COSTT4_A * 4 / data$MD_EARN_WNE_P6
+data$BE_MN_P10 = data$COSTT4_A * 4 / data$MN_EARN_WNE_P10
+data$BE_MD_P10 = data$COSTT4_A * 4 / data$MD_EARN_WNE_P10
 
 ## ROI USING EARNINGS of beigining salary
-data$ROI_MN_P6 = (data$MN_EARN_WNE_P6 - data$COSTT4_A) / data$COSTT4_A
-data$ROI_MD_P6 = (data$MD_EARN_WNE_P6 - data$COSTT4_A) / data$COSTT4_A
+data$ROI_MN_P6 = (data$MN_EARN_WNE_P6 - data$COSTT4_A) / data$COSTT4_A * 100
+data$ROI_MD_P6 = (data$MD_EARN_WNE_P6 - data$COSTT4_A) / data$COSTT4_A * 100
 
 ## ROI USING MEAN EARNINGS of 6-year salary
-data$ROI_MN_P10 = (data$MN_EARN_WNE_P10 - data$COSTT4_A) / data$COSTT4_A
-data$ROI_MD_P10 = (data$MD_EARN_WNE_P10 - data$COSTT4_A) / data$COSTT4_A
-roi_colnames = c("BE_MN_P6", "BE_MD_P6", "BE_MN_P10", "BE_MN_P10", "ROI_MN_P6", "ROI_MD_P6", "ROI_MN_P10", "ROI_MD_P10")
+data$ROI_MN_P10 = (data$MN_EARN_WNE_P10 - data$COSTT4_A) / data$COSTT4_A * 100
+data$ROI_MD_P10 = (data$MD_EARN_WNE_P10 - data$COSTT4_A) / data$COSTT4_A * 100
+roi_colnames = c("BE_MN_P6", "BE_MD_P6", "BE_MN_P10", "BE_MD_P10", "ROI_MN_P6", "ROI_MD_P6", "ROI_MN_P10", "ROI_MD_P10")
 ```
 
 ### Data Output
@@ -206,11 +206,11 @@ colnames(data_inc_p10)[3] = "MN_EARN_WNE_INC_P10"
 levels(data_inc_p10$Family.Income.Tercile) = c("Lowest Income Tercile", "Middle Income Tercile", "Highest Income Tercile")
 
 data = data[c(attr_colnames, cost_colnames, earning_colnames, roi_colnames)]
-#write_csv(data, "data_cleaned.csv")
-#write_csv(data_gender_p6, "data_gender_p6.csv")
-#write_csv(data_gender_p10, "data_gender_p10.csv")
-#write_csv(data_inc_p6, "data_inc_p6.csv")
-#write_csv(data_inc_p10, "data_inc_p10.csv")
+# write_csv(data, "data_cleaned.csv")
+# write_csv(data_gender_p6, "data_gender_p6.csv")
+# write_csv(data_gender_p10, "data_gender_p10.csv")
+# write_csv(data_inc_p6, "data_inc_p6.csv")
+# write_csv(data_inc_p10, "data_inc_p10.csv")
 ```
 
 # Algorithm and Models
