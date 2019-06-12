@@ -1,222 +1,30 @@
 ---
 title: "ANLY 500 Final Project"
-output: pdf_document
+output: word_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(readr)
-library(mice)
-library(dplyr)
+library(reshape2)
 library(RColorBrewer)
 library(ggplot2)
-library(reshape)
+library(dplyr)
 library(tidyverse)
 library(stringr)
+library(knitr)
+library(MOTE)
+library(pwr)
 ```
 
-# Data Cleaning
-
-- Unzip MERGED2014_15_PP.csv.zip, it is from College Scorecard webiste, not Kaggle. Since Kaggle do not have latest data.
-- `mrc_table10` is data from Mobility Report Card data, they give each school a tier. Looks more useful than payscale school type. For detail, please see Codebook-MRC-Table-6.pdf.
-
-## Read Data
+# Read Data
 ```{r}
-payscale_college_type = read.csv('salaries-by-college-type.csv')
-payscale_college_type = payscale_college_type[, c(1,2)]
-payscale_region = read.csv('salaries-by-region.csv')
-payscale_region = payscale_region[, c(1,2)]
-
-mrc_table10 = read.csv('mrc_table10.csv')
-mrc_table10 = mrc_table10[, c(1, 12)]
-
-# Treat "NULL" and "PrivacySuppressed" as NA when read
-college_scorecard = read.csv('MERGED2014_15_PP.csv', na=c("NULL", "PrivacySuppressed"))
-college_scorecard = college_scorecard[, c(3, 4,6,17,377,1639,1640,1642,1643,1645,1655,1656,1657,1661,1662,1665,1666,1668,1669,1671,1681,1682,1683,1687,1688,1697)]
-```
-
-## Merge Data
-
-### Process School Name
-
-Normalize all school name for merging.
-
-```{r}
-process_school_name = function(data) {
-  data = sub(" \\(.*\\)", "", data)
-  data = sub(" - ", "-", data)
-  data = sub(", ", "-", data)
-  data = sub("\\.", "", data)
-  data = sub(" & ", " and ", data)
-  data = sub("&", " and ", data)
-  data = sub("St ", "Saint ", data)
-  data
-}
-
-payscale_college_type$School.Name = process_school_name(payscale_college_type$School.Name)
-nrow(payscale_college_type)
-
-payscale_region$School.Name = process_school_name(payscale_region$School.Name)
-nrow(payscale_region)
-
-college_scorecard$INSTNM = process_school_name(college_scorecard$INSTNM)
-nrow(college_scorecard)
-```
-
-### Merge Payscale data
-```{r, results='hide'}
-payscale = merge(payscale_college_type, payscale_region, by="School.Name", all = FALSE)
-
-payscale %>% group_by(School.Name) %>% filter(n() > 1)
-
-payscale_party = payscale %>%
-  filter(School.Type == "Party")
-
-payscale = payscale %>%
-  filter(School.Type != "Party") %>%
-  mutate(Is.Party = School.Name %in% payscale_party$School.Name)
-
-nrow(payscale)
-```
-
-All the duplicate rows in Payscale data is because it duplicates all Party Schools. So we split whether or not is a party school into a separate column.
-
-### Merge with College Scorecard
-```{r, results='hide'}
-scorecard_payscale = merge(payscale, college_scorecard, by.y = "INSTNM", by.x = "School.Name")
-
-scorecard_payscale %>% group_by(School.Name) %>% filter(n() > 1)
-
-scorecard_payscale = scorecard_payscale %>%
-  filter( !((School.Name == 'Union College' & STABBR != 'NY') | 
-            (School.Name == 'Wentworth Institute of Technology' & is.na(COSTT4_A))))
-
-nrow(scorecard_payscale)
-```
-
-Two schools are duplicate after merged with College Scorecard data. After some search, we only keep Union College in New York because that is the only one in northwest. And we only keep one Wentworth Institute of Technology because the others do not have data.
-
-### Merge with MRC
-```{r, results='hide'}
-data = merge(scorecard_payscale, mrc_table10, by.x = "OPEID6", by.y = "super_opeid")
-
-data %>% group_by(School.Name) %>% filter(n() > 1)
-
-nrow(data)
-```
-
-No duplicate in this step
-
-### Other processing
-```{r}
-names(data)[names(data) == 'tier_name'] <- 'Tier'
-earning_colnames = c("MN_EARN_WNE_P6", "MD_EARN_WNE_P6", "PCT25_EARN_WNE_P6", "PCT75_EARN_WNE_P6", "SD_EARN_WNE_P6", "MN_EARN_WNE_INC1_P6", "MN_EARN_WNE_INC2_P6", "MN_EARN_WNE_INC3_P6", "MN_EARN_WNE_MALE0_P6", "MN_EARN_WNE_MALE1_P6", "MD_EARN_WNE_P8", "MN_EARN_WNE_P10", "MD_EARN_WNE_P10", "PCT25_EARN_WNE_P10", "PCT75_EARN_WNE_P10", "SD_EARN_WNE_P10", "MN_EARN_WNE_INC1_P10", "MN_EARN_WNE_INC2_P10", "MN_EARN_WNE_INC3_P10", "MN_EARN_WNE_MALE0_P10", "MN_EARN_WNE_MALE1_P10")
-cost_colnames = c("COSTT4_A")
-attr_colnames = c("School.Name", "School.Type", "Region", "Is.Party", 
-"STABBR", "CONTROL", "Tier")
-
-data$CONTROL = factor(data$CONTROL, levels = c(1,2), labels = c("Public", "Private nonprofit"))
-```
-
-We reorder the column for easy inspection. And convert `CONTROL` into factor.
-
-## Accuracy and Outlier
-### Accurary & Missing value
-```{r, results='hide', warning=FALSE}
-summary(data)
-
-percentmiss <- function(x){length(x[is.na(x)])/length(x)*100}
-
-# process column first will get more records left
-missing_col = apply(data, 2, percentmiss)
-missing_col
-delete <- which(missing_col > 5)
-replace_col = data[,-delete]
-dont_col = data[,delete]
-
-missing_row = apply(replace_col, 1, percentmiss)
-missing_row[missing_row > 5]
-replace_row = subset(replace_col, missing_row <= 5)
-dont_row = subset(replace_col, missing_row > 5)
-
-# change to "cart" to avoid error, increase iteration to get reliable result
-temp_no_miss = mice(replace_row, maxit=100, method='cart', seed=500)
-no_miss = mice::complete(temp_no_miss,1)
-
-# combine data back
-all_rows = rbind(dont_row, no_miss)
-all_col = cbind(dont_col, all_rows)
-```
-
-There is no accuracy problem in the data. We use mice to complete the missing value for data meet 5% rule.
-
-### Outlier
-```{r}
-# pass tolerance to prevent mahalanobis think it is singular matrix
-attr_index = which(colnames(no_miss) %in% attr_colnames)
-mahal <- mahalanobis(no_miss[-c(attr_index)],
-                    colMeans(no_miss[-c(attr_index)],na.rm=TRUE),
-                    cov(no_miss[-c(attr_index)], use = "pairwise.complete.obs"),
-                    tol=1e-30)
-cutoff = qchisq(1-.001,ncol(no_miss[-c(attr_index)]))
-print(cutoff)
-summary(mahal < cutoff)
-noout = subset(no_miss, mahal < cutoff)
-
-no_miss[mahal >= cutoff, c("School.Name", "COSTT4_A", "MN_EARN_WNE_P6", "MD_EARN_WNE_P6", "MN_EARN_WNE_P10", "MD_EARN_WNE_P10")]
-
-data = all_col
-```
-
-The outliers are more than 5% of data, so we keep them.
-
-## ROI Analysis
-```{r}
-## Break-even point calculation
-data$BE_MN_P6 = data$COSTT4_A * 4 / data$MN_EARN_WNE_P6
-data$BE_MD_P6 = data$COSTT4_A * 4 / data$MD_EARN_WNE_P6
-data$BE_MN_P10 = data$COSTT4_A * 4 / data$MN_EARN_WNE_P10
-data$BE_MD_P10 = data$COSTT4_A * 4 / data$MD_EARN_WNE_P10
-
-## ROI USING EARNINGS of beigining salary
-data$ROI_MN_P6 = (data$MN_EARN_WNE_P6 - data$COSTT4_A) / data$COSTT4_A * 100
-data$ROI_MD_P6 = (data$MD_EARN_WNE_P6 - data$COSTT4_A) / data$COSTT4_A * 100
-
-## ROI USING MEAN EARNINGS of 6-year salary
-data$ROI_MN_P10 = (data$MN_EARN_WNE_P10 - data$COSTT4_A) / data$COSTT4_A * 100
-data$ROI_MD_P10 = (data$MD_EARN_WNE_P10 - data$COSTT4_A) / data$COSTT4_A * 100
-roi_colnames = c("BE_MN_P6", "BE_MD_P6", "BE_MN_P10", "BE_MD_P10", "ROI_MN_P6", "ROI_MD_P6", "ROI_MN_P10", "ROI_MD_P10")
-```
-
-### Data Output
-
-```{r}
-data_gender_p6 = melt(data[c("School.Name", "MN_EARN_WNE_MALE0_P6", "MN_EARN_WNE_MALE1_P6")], id=c("School.Name"), variable_name="Gender")
-levels(data_gender_p6$Gender) = c("Male", "Female")
-colnames(data_gender_p6)[3] = "MN_EARN_WNE_GENDER_P6"
-
-data_gender_p10 = melt(data[c("School.Name", "MN_EARN_WNE_MALE0_P10", "MN_EARN_WNE_MALE1_P10")], id=c("School.Name"), variable_name="Gender")
-levels(data_gender_p10$Gender) = c("Male", "Female")
-colnames(data_gender_p10)[3] = "MN_EARN_WNE_GENDER_P10"
-
-data_inc_p6 = melt(data[c("School.Name", "MN_EARN_WNE_INC1_P6", "MN_EARN_WNE_INC2_P6", "MN_EARN_WNE_INC3_P6")], id=c("School.Name"), variable_name="Family.Income.Tercile")
-colnames(data_inc_p6)[3] = "MN_EARN_WNE_INC_P6"
-levels(data_inc_p6$Family.Income.Tercile) = c("Lowest Income Tercile", "Middle Income Tercile", "Highest Income Tercile")
-
-data_inc_p10 = melt(data[c("School.Name", "MN_EARN_WNE_INC1_P10", "MN_EARN_WNE_INC2_P10", "MN_EARN_WNE_INC3_P10")], id=c("School.Name"), variable_name="Family.Income.Tercile")
-colnames(data_inc_p10)[3] = "MN_EARN_WNE_INC_P10"
-levels(data_inc_p10$Family.Income.Tercile) = c("Lowest Income Tercile", "Middle Income Tercile", "Highest Income Tercile")
-
-data = data[c(attr_colnames, cost_colnames, earning_colnames, roi_colnames)]
-# write_csv(data, "data_cleaned.csv")
-# write_csv(data_gender_p6, "data_gender_p6.csv")
-# write_csv(data_gender_p10, "data_gender_p10.csv")
-# write_csv(data_inc_p6, "data_inc_p6.csv")
-# write_csv(data_inc_p10, "data_inc_p10.csv")
+data = read_csv('data_cleaned.csv', col_types = paste0('cfflfff', strrep('i', 22), strrep('d', 8)))
+data$Tier = factor(data$Tier, levels = c("Selective private", "Selective public", "Highly selective private", "Highly selective public", "Other elite schools (public and private)", "Ivy Plus"))
 ```
 
 # Algorithm and Models
-```{r}
+```{r eval=FALSE, echo=FALSE}
 ##Read the 4th dataset
 salary_degree <-
   read_csv(
@@ -307,149 +115,239 @@ ggplot(data, aes(School.Type)) +
 ```
 
 # Gender & Family
-```{r}
-#Wrangle data to add gender variable
-data_long <- gather(data, "gender", "value", MN_EARN_WNE_MALE0_P6, MN_EARN_WNE_MALE1_P6, MN_EARN_WNE_MALE0_P10, MN_EARN_WNE_MALE1_P10)
-data_long1 <- separate(data_long, gender, c("gender", "gendered"), sep = "_P", remove = FALSE)
-data_long2 <- spread(data_long1, gendered, value, fill = NA, convert = FALSE, sep = "_Income_P")
-data_long2$gender <- str_replace(data_long2$gender, "MN_EARN_WNE_MALE0", "Female")
-data_long2$gender <- str_replace(data_long2$gender, "MN_EARN_WNE_MALE1", "Male")
+```{r data-wrangle}
+data_gender_p6 = data %>%
+  melt(id.vars=1:8, measure.vars=c( "MN_EARN_WNE_MALE0_P6", "MN_EARN_WNE_MALE1_P6"), variable.name="Gender", value.name="Income") %>%
+  mutate(
+    Gender = factor(Gender, levels = c("MN_EARN_WNE_MALE0_P6", "MN_EARN_WNE_MALE1_P6"), labels = c("Female", "Male")),
+    ROI = (Income-COSTT4_A)/COSTT4_A*100
+  )
+  
+data_gender_p10 = data %>%
+  melt(id.vars=1:8, measure.vars=c( "MN_EARN_WNE_MALE0_P10", "MN_EARN_WNE_MALE1_P10"), variable.name="Gender", value.name="Income") %>%
+  mutate(
+    Gender = factor(Gender, levels = c("MN_EARN_WNE_MALE0_P10", "MN_EARN_WNE_MALE1_P10"), labels = c("Female", "Male")),
+    ROI = (Income-COSTT4_A)/COSTT4_A*100
+  )
 
-#Wrangle data to add family income variable
-data_long3 <- gather(data_long2, "family_income_level", "value", MN_EARN_WNE_INC1_P6, MN_EARN_WNE_INC2_P6, MN_EARN_WNE_INC3_P6, MN_EARN_WNE_INC1_P10, MN_EARN_WNE_INC2_P10, MN_EARN_WNE_INC3_P10)
-data_long4 <- separate(data_long3, family_income_level, c("family_income_level", "born"), sep = "_P", remove = FALSE)
-data_long5 <- spread(data_long4, born, value, fill = NA, convert = FALSE, sep = "_Income_P")
-data_long5$family_income_level <- str_replace(data_long5$family_income_level, "MN_EARN_WNE_INC1", "Low")
-data_long5$family_income_level <- str_replace(data_long5$family_income_level, "MN_EARN_WNE_INC2", "Medium")
-data_long5$family_income_level <- str_replace(data_long5$family_income_level, "MN_EARN_WNE_INC3", "High")
+data_family_p6 = data %>%
+  melt(id.vars=1:8, measure.vars=c( "MN_EARN_WNE_INC1_P6", "MN_EARN_WNE_INC2_P6", "MN_EARN_WNE_INC3_P6"), variable.name="Family.Income", value.name="Income") %>%
+  mutate(
+    Family.Income = factor(Family.Income, levels = c("MN_EARN_WNE_INC1_P6", "MN_EARN_WNE_INC2_P6", "MN_EARN_WNE_INC3_P6"), labels = c("Low", "Middle", "High")),
+    ROI = (Income-COSTT4_A)/COSTT4_A*100
+  )
 
-#Remove NA value
-longdata <- drop_na(data_long5)
+data_family_p10 = data %>%
+  melt(id.vars=1:8, measure.vars=c( "MN_EARN_WNE_INC1_P10", "MN_EARN_WNE_INC2_P10", "MN_EARN_WNE_INC3_P10"), variable.name="Family.Income", value.name="Income") %>%
+  mutate(
+    Family.Income = factor(Family.Income, levels = c("MN_EARN_WNE_INC1_P10", "MN_EARN_WNE_INC2_P10", "MN_EARN_WNE_INC3_P10"), labels = c("Low", "Middle", "High")),
+    ROI = (Income-COSTT4_A)/COSTT4_A*100
+  )
+```
 
+```{r plot-family, dpi=300, fig.width=8, fig.height=6, fig.path="figures/"}
 #Explore the interaction effect with what you can't change - family and gender
-longchar =
-  ggplot(longdata, aes(longdata$Is.Party,longdata$born_Income_P6,fill=longdata$family_income_level)) +  
-  stat_summary(fun.y = mean,
+plot_elements = function() {
+  list(
+    theme_classic(),
+    stat_summary(fun.y = mean,
                geom = "bar",
-               position = "dodge")+
-  stat_summary(fun.data = mean_cl_normal,
+               position = "dodge"),
+    stat_summary(fun.data = mean_cl_normal,
                geom = "errorbar",
                position = position_dodge(width = 0.9),
-               width = 0.1) +
-  xlab("Party School?")+
-  ylab("Starting Salary") +
-  theme_classic() +
-  scale_fill_manual(name = "Family Income Level",
-                    labels = c("High ($75k+)","Low ($30k-)", "Medium ($30k~$75k)"),
-                    values = c("LightBlue","Pink", "Lavender"))
-longchar
-longchar2 =
-  ggplot(longdata, aes(longdata$Is.Party,longdata$born_Income_P10,fill=longdata$family_income_level)) +  
-  stat_summary(fun.y = mean,
-               geom = "bar",
-               position = "dodge")+
-  stat_summary(fun.data = mean_cl_normal,
-               geom = "errorbar",
-               position = position_dodge(width = 0.9),
-               width = 0.1) +
-  xlab("Party School?")+
-  ylab("Midcareer Salary") +
-  theme_classic() +
-  scale_fill_manual(name = "Family Income Level",
-                    labels = c("High ($75k+)","Low ($30k-)", "Medium ($30k~$75k)"),
-                    values = c("LightBlue","Pink", "Lavender"))
-longchar2
-longchar3 =
-  ggplot(longdata, aes(longdata$School.Type,longdata$born_Income_P6,fill=longdata$family_income_level)) +  
-  stat_summary(fun.y = mean,
-               geom = "bar",
-               position = "dodge")+
-  stat_summary(fun.data = mean_cl_normal,
-               geom = "errorbar",
-               position = position_dodge(width = 0.9),
-               width = 0.1) +
-  xlab("School Type")+
-  ylab("Starting Salary") +
-  theme_classic() +
-  scale_fill_manual(name = "Family Income Level",
-                    labels = c("High ($75k+)","Low ($30k-)", "Medium ($30k~$75k)"),
-                    values = c("LightBlue","Pink", "Lavender"))
-longchar3
-longchar4 =
-  ggplot(longdata, aes(longdata$School.Type,longdata$born_Income_P10,fill=longdata$family_income_level)) +  
-  stat_summary(fun.y = mean,
-               geom = "bar",
-               position = "dodge")+
-  stat_summary(fun.data = mean_cl_normal,
-               geom = "errorbar",
-               position = position_dodge(width = 0.9),
-               width = 0.1) +
-  xlab("School Type")+
-  ylab("Midcareer Salary") +
-  theme_classic() +
-  scale_fill_manual(name = "Family Income Level",
-                    labels = c("High ($75k+)","Low ($30k-)", "Medium ($30k~$75k)"),
-                    values = c("LightBlue","Pink", "Lavender"))
-longchar4
-longchar5 =
-  ggplot(longdata, aes(longdata$School.Type,longdata$gendered_Income_P6,fill=longdata$gender)) +  
-  stat_summary(fun.y = mean,
-               geom = "bar",
-               position = "dodge")+
-  stat_summary(fun.data = mean_cl_normal,
-               geom = "errorbar",
-               position = position_dodge(width = 0.9),
-               width = 0.1) +
-  xlab("School Type")+
-  ylab("Starting Salary") +
-  theme_classic() 
-longchar5
-longchar6 =
-  ggplot(longdata, aes(longdata$School.Type,longdata$gendered_Income_P10,fill=longdata$gender)) +  
-  stat_summary(fun.y = mean,
-               geom = "bar",
-               position = "dodge")+
-  stat_summary(fun.data = mean_cl_normal,
-               geom = "errorbar",
-               position = position_dodge(width = 0.9),
-               width = 0.1) +
-  xlab("School Type")+
-  ylab("Midcareer Salary") +
-  theme_classic() 
-longchar6
-unique(longdata$Tier)
-longchar7 =
-  ggplot(longdata, aes(longdata$Tier,longdata$gendered_Income_P10,fill=longdata$gender)) +  
-  stat_summary(fun.y = mean,
-               geom = "bar",
-               position = "dodge")+
-  stat_summary(fun.data = mean_cl_normal,
-               geom = "errorbar",
-               position = position_dodge(width = 0.9),
-               width = 0.1) +
-  xlab("School Type")+
-  ylab("Midcareer Salary") +
-  theme_classic() 
-longchar7
+               width = 0.1)
+  )
+}
 
+data_family_p6 %>%
+  drop_na() %>%
+  ggplot(aes(Is.Party, Income, fill=Family.Income)) +
+  xlab("Party School?")+
+  ylab("Starting Salary") +
+  ggtitle("Mid-career Salary group by Party School and Famly Income Level") +
+  scale_fill_manual(name = "Family Income Level",
+                    labels = c("Low ($30k-)", "Medium ($30k~$75k)", "High ($75k+)"),
+                    values = c("Pink", "Lavender", "LightBlue")) +
+  plot_elements()
+
+data_family_p10 %>%
+  drop_na() %>%
+  ggplot(aes(Is.Party, Income, fill=Family.Income)) +
+  xlab("Party School?")+
+  ylab("Mid-career Salary") +
+  ggtitle("Mid-career Salary group by Party School and Famly Income Level") +
+  scale_fill_manual(name = "Family Income Level",
+                    labels = c("Low ($30k-)", "Medium ($30k~$75k)", "High ($75k+)"),
+                    values = c("Pink", "Lavender", "LightBlue")) +
+  plot_elements()
+
+
+data_family_p6 %>%
+  drop_na() %>%
+  ggplot(aes(School.Type, Income, fill=Family.Income)) +
+  xlab("School Type")+
+  ylab("Starting Salary") +
+  ggtitle("Starting Salary group by School Type and Famly Income Level") +
+  scale_fill_manual(name = "Family Income Level",
+                    labels = c("Low ($30k-)", "Medium ($30k~$75k)", "High ($75k+)"),
+                    values = c("Pink", "Lavender", "LightBlue")) +
+  plot_elements()
+
+data_family_p10 %>%
+  drop_na() %>%
+  ggplot(aes(School.Type, Income, fill=Family.Income)) +
+  xlab("School Type")+
+  ylab("Mid-career Salary") +
+  ggtitle("Mid-career Salary group by School Type and Famly Income Level") +
+  scale_fill_manual(name = "Family Income Level",
+                    labels = c("Low ($30k-)", "Medium ($30k~$75k)", "High ($75k+)"),
+                    values = c("Pink", "Lavender", "LightBlue")) +
+  plot_elements()
+```
+
+```{r plot-gender, dpi=300, fig.width=8, fig.height=6, fig.path="figures/"}
+data_gender_p6 %>%
+  drop_na() %>%
+  ggplot(aes(School.Type, Income, fill=Gender)) +
+  xlab("School Type")+
+  ylab("Starting Salary") +
+  ggtitle("Starting Salary group by School Type and Gender") +
+  plot_elements()
+
+data_gender_p6 %>%
+  drop_na() %>%
+  ggplot(aes(School.Type, Income, fill=Gender)) +
+  xlab("School Type")+
+  ylab("Mid-career Salary") +
+  ggtitle("Mid-career Salary group by School Type and Gender") +
+  plot_elements()
+
+data_gender_p6 %>%
+  drop_na() %>%
+  ggplot(aes(Tier, Income, fill=Gender)) +
+  xlab("School Tier")+
+  ylab("Starting Salary") +
+  ggtitle("Starting Salary group by School Tier and Gender") +
+  plot_elements() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+
+data_gender_p6 %>%
+  drop_na() %>%
+  ggplot(aes(Tier, Income, fill=Gender)) +
+  xlab("School Tier")+
+  ylab("Mid-career Salary") +
+  ggtitle("Mid-career Salary group by School Tier and Gender") +
+  plot_elements() + 
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))
+
+```
+
+
+
+```{r t-test}
 #T-test to see if there is a difference in starting income from the two different gender group
-#H1: M1 <> M2
-#H0: M1 = M2
-t.test(longdata$gendered_Income_P6 ~ longdata$gender)
+#H0: Male = Female
+#H1: Male <> Female
+data_gender_p6 = drop_na(data_gender_p6)
+t.test(data_gender_p6$Income ~ data_gender_p6$Gender)
 
-#Power and effect size
-table(longdata$gender)
-sd(longdata$gendered_Income_P6[longdata$gender=="Female"])
-sd(longdata$gendered_Income_P6[longdata$gender=="Male"])
-library(MOTE)
-effect = d.ind.t(m1 = 41038.38, m2 = 49424.02,
-                 sd1 = 10289.34, sd2 = 13488.84,
-                 n1 = 383, n2 = 383, a = .05)
-effect$d
-library(pwr)
-pwr.t.test(n = NULL, d = effect$d, 
+M = tapply(data_gender_p6$Income, data_gender_p6$Gender, mean) 
+N = tapply(data_gender_p6$Income, data_gender_p6$Gender, length) 
+stdev = tapply(data_gender_p6$Income, data_gender_p6$Gender, sd) 
+M;stdev;N
+
+effect1 = d.ind.t(
+  m1 = M[1], m2 = M[2],
+  sd1 = stdev[1], sd2 = stdev[2], 
+  n1 = N[1], n2 = N[2], a = .05) 
+effect1$d
+
+pwr.t.test(n = NULL, d = effect1$d, 
+           sig.level = .05,
+           power = .80, type = "two.sample", 
+           alternative = "two.sided")
+
+
+#T-test to see if there is a difference in mid-career income from the two different gender group
+#H0: Male = Female
+#H1: Male <> Female
+data_gender_p10 = drop_na(data_gender_p10)
+t.test(data_gender_p10$Income ~ data_gender_p10$Gender)
+
+M = tapply(data_gender_p10$Income, data_gender_p10$Gender, mean) 
+N = tapply(data_gender_p10$Income, data_gender_p10$Gender, length) 
+stdev = tapply(data_gender_p10$Income, data_gender_p10$Gender, sd) 
+M;stdev;N
+
+effect2 = d.ind.t(
+  m1 = M[1], m2 = M[2],
+  sd1 = stdev[1], sd2 = stdev[2], 
+  n1 = N[1], n2 = N[2], a = .05) 
+effect2$d
+
+pwr.t.test(n = NULL, d = effect2$d, 
            sig.level = .05,
            power = .80, type = "two.sample", 
            alternative = "two.sided")
 ```
 
+```{r regression, dpi=300, fig.width=8, fig.height=6, fig.path="figures/"}
+model_gender_p6_1 = lm(ROI ~ Gender, data = data_gender_p6)
+summary(model_gender_p6_1)
+
+model_gender_p6_2 = lm(ROI ~ Gender + CONTROL, data = data_gender_p6)
+summary(model_gender_p6_2)
+anova(model_gender_p6_1, model_gender_p6_2)
+
+model_gender_p6_3 = lm(ROI ~ Gender + CONTROL + School.Type, data = data_gender_p6)
+summary(model_gender_p6_3)
+anova(model_gender_p6_2, model_gender_p6_3)
+
+model_gender_p6_4 = lm(ROI ~ Gender + CONTROL + School.Type + STABBR, data = data_gender_p6)
+summary(model_gender_p6_4)
+anova(model_gender_p6_3, model_gender_p6_4)
+
+## Is.Party is not helpful
+model_gender_p6_5 = lm(ROI ~ Gender + CONTROL + School.Type + STABBR + Is.Party, data = data_gender_p6)
+summary(model_gender_p6_5)
+anova(model_gender_p6_4, model_gender_p6_5)
+
+## Tier is not helpful
+model_gender_p6_6 = lm(ROI ~ Gender + CONTROL + School.Type + STABBR + Tier, data = data_gender_p6)
+summary(model_gender_p6_6)
+anova(model_gender_p6_4, model_gender_p6_6)
+
+# Region is not helpful
+model_gender_p6_7 = lm(ROI ~ Gender + CONTROL + School.Type + STABBR + Region, data = data_gender_p6)
+summary(model_gender_p6_7)
+anova(model_gender_p6_5, model_gender_p6_7)
+
+# Final model: ROI ~ Gender + CONTROL + School.Type + STABBR
+```
+
+By using hierarchical regression, we find the best model to predict starting salary based on gender is ROI ~ Gender + CONTROL + School.Type + STABBR. Tier, Is.Party and Region will not help to improve the model. 
+
+The model meets the assumptions of linear regression:
+
+```{r lm-assumption}
+plot(model_gender_p6_4)
+```
+
+Here is the table for coefficients:
+
+```{r}
+kable(coefficients(summary(model_gender_p6_4)))
+```
+
+Overall, this model can explain about 80% of the variance (Adjusted R-squared=0.80) and very significant (p=.00).
+
+To be specific:
+
+  - Gender: Compared to female students, male students will significantly(p=.00) improve their ROI about 28.51%.
+  - Tier: Tier (Selectivity) information is partially correlated with CONTROL because some of them are dedicated public or private category. It also correlate with School.Type, for example Ivy League category. And the ANOVA test of model shows that it will not help to improve model when both CONTROL and School.Type are present.
+  - Control: Whether a school is public or private weight most in the model. If a student go to a public school, his/her ROI will go up about 79.27% compared to a student go to a private school. This probably caused by the lower cost of public schools.
+  - School.Type: Compared to students go to engineering school, students who go to Liberal Arts school will have much lower ROI by 43.02%. This probably caused by the low starting salary for those students.
+  - STABBR: Compared to students in California, students in Wyoming, Louisiana and Utah will get higher ROI, but students in Illinois, Tennessee will get lower ROI.
+
+We can't do mediation test since all independent variables are not numerical. We can't compute 'a' path model.
