@@ -1,6 +1,8 @@
 ---
 title: "ANLY 500 Final Project"
 output: word_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -15,6 +17,7 @@ library(stringr)
 library(knitr)
 library(MOTE)
 library(pwr)
+options(scipen = 999)
 ```
 
 # Read Data
@@ -145,6 +148,8 @@ data_family_p10 = data %>%
   )
 ```
 
+## Family income plot
+
 ```{r plot-family, dpi=300, fig.width=8, fig.height=6, fig.path="figures/"}
 #Explore the interaction effect with what you can't change - family and gender
 plot_elements = function() {
@@ -206,6 +211,9 @@ data_family_p10 %>%
   plot_elements()
 ```
 
+
+## Gender Plot
+
 ```{r plot-gender, dpi=300, fig.width=8, fig.height=6, fig.path="figures/"}
 data_gender_p6 %>%
   drop_na() %>%
@@ -243,56 +251,72 @@ data_gender_p6 %>%
 
 ```
 
-
-
+## Gender T-test
+### Starting
 ```{r t-test}
 #T-test to see if there is a difference in starting income from the two different gender group
 #H0: Male = Female
 #H1: Male <> Female
 data_gender_p6 = drop_na(data_gender_p6)
-t.test(data_gender_p6$Income ~ data_gender_p6$Gender)
+(tt_gender_p6 = t.test(data_gender_p6$Income ~ data_gender_p6$Gender))
 
-M = tapply(data_gender_p6$Income, data_gender_p6$Gender, mean) 
-N = tapply(data_gender_p6$Income, data_gender_p6$Gender, length) 
-stdev = tapply(data_gender_p6$Income, data_gender_p6$Gender, sd) 
-M;stdev;N
+sum_gender_p6 = data_gender_p6 %>% # "Start with the data set we imported, d 
+  group_by(Gender) %>% # Then group d by IV
+  summarize(N = length(Income), # Then summarize each group
+            Mean = mean(Income),
+            SD = sd(Income),
+            SE = SD/sqrt(N))
 
-effect1 = d.ind.t(
-  m1 = M[1], m2 = M[2],
-  sd1 = stdev[1], sd2 = stdev[2], 
-  n1 = N[1], n2 = N[2], a = .05) 
-effect1$d
+kable(sum_gender_p6, digits = 2,  caption = "Descriptive statistics for starting salary between genders")
 
-pwr.t.test(n = NULL, d = effect1$d, 
-           sig.level = .05,
-           power = .80, type = "two.sample", 
-           alternative = "two.sided")
+effect_tt_gender_p6 = d.ind.t(
+  m1 = sum_gender_p6$Mean[1], m2 = sum_gender_p6$Mean[2],
+  sd1 = sum_gender_p6$SD[1], sd2 = sum_gender_p6$SD[2], 
+  n1 = sum_gender_p6$N[1], n2 = sum_gender_p6$N[2], a = .05) 
+effect_tt_gender_p6$d
 
-
-#T-test to see if there is a difference in mid-career income from the two different gender group
-#H0: Male = Female
-#H1: Male <> Female
-data_gender_p10 = drop_na(data_gender_p10)
-t.test(data_gender_p10$Income ~ data_gender_p10$Gender)
-
-M = tapply(data_gender_p10$Income, data_gender_p10$Gender, mean) 
-N = tapply(data_gender_p10$Income, data_gender_p10$Gender, length) 
-stdev = tapply(data_gender_p10$Income, data_gender_p10$Gender, sd) 
-M;stdev;N
-
-effect2 = d.ind.t(
-  m1 = M[1], m2 = M[2],
-  sd1 = stdev[1], sd2 = stdev[2], 
-  n1 = N[1], n2 = N[2], a = .05) 
-effect2$d
-
-pwr.t.test(n = NULL, d = effect2$d, 
+pwr_gender_p6 = pwr.t.test(n = NULL, d = effect_tt_gender_p6$d, 
            sig.level = .05,
            power = .80, type = "two.sample", 
            alternative = "two.sided")
 ```
 
-```{r regression, dpi=300, fig.width=8, fig.height=6, fig.path="figures/"}
+
+On average, female students (M = `r round(sum_gender_p6$Mean[1], 2)`, SD = `r round(sum_gender_p6$SD[1], 2)`) had a lower starting salary as compared to male students (M = `r round(sum_gender_p6$Mean[2], 2)`, SD = `r round(sum_gender_p6$SD[2], 2)`). When leaving alpha and beta at their customary levels, the result was significant $t$(`r round(tt_gender_p6$parameter, 2)`) = `r round(tt_gender_p6$statistic, 2)` ($p$ = `r round(tt_gender_p6$p.value, 2)`) with effect size $d$ = `r round(effect_tt_gender_p6$d, 2)`. On 95% confidence level, the difference between female and male students in starting salary is from \$`r round(tt_gender_p6$conf.int[1], 2)` to \$`r round(tt_gender_p6$conf.int[2], 2)`.
+
+### Mid-career
+```{r}
+#T-test to see if there is a difference in mid-career income from the two different gender group
+#H0: Male = Female
+#H1: Male <> Female
+data_gender_p10 = drop_na(data_gender_p10)
+(tt_gender_p10 = t.test(data_gender_p10$Income ~ data_gender_p10$Gender))
+
+sum_gender_p10 = data_gender_p10 %>% # "Start with the data set we imported, d 
+  group_by(Gender) %>% # Then group d by IV
+  summarize(N = length(Income), # Then summarize each group
+            Mean = mean(Income),
+            SD = sd(Income),
+            SE = SD/sqrt(N))
+
+kable(sum_gender_p10, digits = 2, caption = "Descriptive statistics for mid-career salary between genders")
+
+effect_tt_gender_p10 = d.ind.t(
+  m1 = sum_gender_p10$Mean[1], m2 = sum_gender_p10$Mean[2],
+  sd1 = sum_gender_p10$SD[1], sd2 = sum_gender_p10$SD[2], 
+  n1 = sum_gender_p10$N[1], n2 = sum_gender_p10$N[2], a = .05) 
+effect_tt_gender_p10$d
+
+pwr_gender_p10 = pwr.t.test(n = NULL, d = effect_tt_gender_p10$d, 
+           sig.level = .05,
+           power = .80, type = "two.sample", 
+           alternative = "two.sided")
+```
+
+The salary difference between gender gets larger as time goes by. On average, female students (M = `r round(sum_gender_p10$Mean[1], 2)`, SD = `r round(sum_gender_p10$SD[1], 2)`) had a much lower mid-career salary as compared to male students (M = `r round(sum_gender_p10$Mean[2], 2)`, SD = `r round(sum_gender_p10$SD[2], 2)`). When leaving alpha and beta at their customary levels, the result was significant $t$(`r round(tt_gender_p10$parameter, 2)`) = `r round(tt_gender_p10$statistic, 2)` ($p$ = `r round(tt_gender_p10$p.value, 2)`) with effect size $d$ = `r round(effect_tt_gender_p10$d, 2)`. On 95% confidence level, the difference between female and male students in mid-career salary is from \$`r round(tt_gender_p10$conf.int[1], 2)` to \$`r round(tt_gender_p10$conf.int[2], 2)`.
+
+## Linear Model
+```{r regression}
 model_gender_p6_1 = lm(ROI ~ Gender, data = data_gender_p6)
 summary(model_gender_p6_1)
 
@@ -330,24 +354,70 @@ By using hierarchical regression, we find the best model to predict starting sal
 
 The model meets the assumptions of linear regression:
 
-```{r lm-assumption}
+```{r lm-assumption,dpi=300, fig.width=8, fig.height=8, fig.path="figures/"}
+par(mfrow=c(2,2))
 plot(model_gender_p6_4)
 ```
 
 Here is the table for coefficients:
 
 ```{r}
-kable(coefficients(summary(model_gender_p6_4)))
+kable(coefficients(summary(model_gender_p6_4)), digits = 2, caption = "Model: ROI ~ Gender + CONTROL + School.Type + STABBR")
 ```
 
-Overall, this model can explain about 80% of the variance (Adjusted R-squared=0.80) and very significant (p=.00).
+Overall, this model can explain about 80% of the variance (Adjusted  $R^2$=0.80) and very significant (p=0).
 
 To be specific:
 
   - Gender: Compared to female students, male students will significantly(p=.00) improve their ROI about 28.51%.
-  - Tier: Tier (Selectivity) information is partially correlated with CONTROL because some of them are dedicated public or private category. It also correlate with School.Type, for example Ivy League category. And the ANOVA test of model shows that it will not help to improve model when both CONTROL and School.Type are present.
+  - Tier: Tier (Selectivity) information is partially correlated with CONTROL because some of them are dedicated public or private category. It is also correlated with School.Type, for example Ivy League category. And the ANOVA test of model shows that it will not help to improve model when both CONTROL and School.Type are present.
   - Control: Whether a school is public or private weight most in the model. If a student go to a public school, his/her ROI will go up about 79.27% compared to a student go to a private school. This probably caused by the lower cost of public schools.
   - School.Type: Compared to students go to engineering school, students who go to Liberal Arts school will have much lower ROI by 43.02%. This probably caused by the low starting salary for those students.
   - STABBR: Compared to students in California, students in Wyoming, Louisiana and Utah will get higher ROI, but students in Illinois, Tennessee will get lower ROI.
 
-We can't do mediation test since all independent variables are not numerical. We can't compute 'a' path model.
+## Mediation Test
+```{r}
+#Explore Mediation Effect of family Income on mid-career ROI
+data_family_p10$Family.Income.Num = scale(as.integer(data_family_p10$Family.Income))
+
+model_m1 <- lm(ROI ~ School.Type, data = data_family_p10)
+summary(model_m1)
+
+model_m2 <- lm(Family.Income.Num ~ School.Type, data = data_family_p10)
+summary(model_m2)
+
+model_m3 <- lm(ROI ~ Family.Income.Num + School.Type, data = data_family_p10)
+summary(model_m3)
+
+anova(model_m1, model_m3)
+
+#Sobel Test
+a = coef(model_m2)[2]
+b = coef(model_m3)[3]
+SEa = summary(model_m2)$coefficients[2,2]
+SEb = summary(model_m3)$coefficients[3,2]
+zscore = (a*b)/(sqrt((b^2*SEa^2)+(a^2*SEb^2)+(SEa*SEb)))
+zscore
+pnorm(abs(zscore), lower.tail = F)*2
+#bootstapping
+indirectsaved = function(formula2, formula3, dataset, random) {
+  d = dataset[random, ] #randomize by row
+  model_m2 = lm(formula2, data = d)
+  model_m3 = lm(formula3, data = d)
+  a = coef(model_m2)[2]
+  b = coef(model_m3)[3]
+  indirect = a*b
+  return(indirect)
+}
+library(boot)
+
+bootresults = boot(data = data_family_p10,
+                   statistic = indirectsaved,
+                   formula2 = Family.Income.Num ~ School.Type,
+                   formula3 = ROI ~ Family.Income.Num + School.Type,
+                   R = 1000)
+boot.ci(bootresults,
+        conf = .95,
+        type = "norm")
+```
+
